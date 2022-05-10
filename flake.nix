@@ -28,8 +28,8 @@
         '';
       };
 
-      write-main-program-line = writeShellApplication {
-        name = "write-main-program-line";
+      write-mainprog-line = writeShellApplication {
+        name = "write-mainprog-line";
         runtimeInputs = attrValues { inherit (pkgs) gnugrep gnused; };
         text = ''
           bin="$1"
@@ -50,11 +50,11 @@
         '';
       };
 
-      get-single-bin-for-package = writeShellApplication {
-        name = "get-single-bin-for-package";
+      get-bin-for-pkgs = writeShellApplication {
+        name = "get-bin-for-pkgs";
         runtimeInputs = attrValues {
           inherit (pkgs) coreutils jq ripgrep;
-          inherit get-bins-in-store-path write-main-program-line;
+          inherit get-bins-in-store-path write-mainprog-line;
         };
         text = ''
           name=$(echo "$1" | jq -r '.name')
@@ -72,21 +72,21 @@
         '';
       };
 
-      add-main-program-for-package = writeShellApplication {
-        name = "add-main-program-for-package";
+      add-mainprog = writeShellApplication {
+        name = "add-mainprog";
         runtimeInputs = attrValues {
           inherit (pkgs) gnused jq;
-          inherit get-single-bin-for-package write-main-program-line;
+          inherit get-bin-for-pkgs write-mainprog-line;
         };
         text = ''
           name=$(echo "$1" | jq -r '.name')
           file=$(echo "$1" | jq -r '.position' | sed -E 's/(.+):[0-9]+/\1/')
-          bin=$(get-single-bin-for-package "$1")
+          bin=$(get-bin-for-pkgs "$1")
 
           # If package is auto-generated, skip
           if echo "$file" | rg '(haskell-modules|node-packages)' > /dev/null; then exit; fi
 
-          if ! write-main-program-line "$bin" "$file"; then
+          if ! write-mainprog-line "$bin" "$file"; then
             echo ""
             echo Failed to add "$bin" as meta.mainProgram for "$name" in:
             echo "$file"
@@ -95,49 +95,84 @@
         '';
       };
 
-      print-main-program-for-node-package = writeShellApplication {
-        name = "print-main-program-for-node-package";
+      mainprog-info-node = writeShellApplication {
+        name = "mainprog-info-node";
         runtimeInputs = attrValues {
           inherit (pkgs) gnused jq;
-          inherit get-single-bin-for-package;
+          inherit get-bin-for-pkgs;
         };
         text = ''
           name=$(echo "$1" | jq -r '.name' | sed -E 's#_at_(.+)_slash_(.+)#"@\1/\2"#')
-          bin=$(get-single-bin-for-package "$1")
+          bin=$(get-bin-for-pkgs "$1")
           echo "$name" = \""$bin"\"
+        '';
+      };
+
+      mainprog-info-perl = writeShellApplication {
+        name = "mainprog-info-perl";
+        runtimeInputs = attrValues {
+          inherit (pkgs) gnused jq;
+          inherit get-bin-for-pkgs;
+        };
+        text = ''
+          pname=$(echo "$1" | jq -r '.pname' | sed -E 's/perl[0-9]+.[0-9]+.[0-9]+-//')
+          bin=$(get-bin-for-pkgs "$1")
+          echo For "$pname" add:
+          echo "      mainProgram = \"$bin\";"
+        '';
+      };
+
+      run-script = writeShellApplication {
+        name = "run-script";
+        runtimeInputs = attrValues { inherit (pkgs) jq nix parallel; };
+        text = ''
+          script="$1"
+          pkgs_info="$2"
+          nixpkgs="$3"
+          nix eval --json \
+            --argstr nixpkgs "$nixpkgs" \
+            --argstr system ${system} \
+            -f ${./packages-info.nix} "$pkgs_info" \
+              | jq -c .[] \
+              | parallel --no-notice "$script {}";
         '';
       };
     in
     {
-      packages.add-main-programs = writeShellApplication {
-        name = "add-main-programs";
+      packages.add-missing-mainprogs = writeShellApplication {
+        name = "add-missing-mainprogs";
         runtimeInputs = attrValues {
-          inherit (pkgs) jq nix parallel;
-          inherit add-main-program-for-package;
+          inherit (pkgs) which;
+          inherit add-mainprog run-script;
+        };
+        text = ''run-script "$(which add-mainprog)" top-level.wo-mainprog "$1"'';
+      };
+
+      packages.print-missing-mainprogs-node = writeShellApplication {
+        name = "print-missing-mainprogs-node";
+        runtimeInputs = attrValues {
+          inherit (pkgs) which;
+          inherit mainprog-info-node run-script;
         };
         text = ''
-          nix eval --json \
-            --argstr nixpkgs "$1" \
-            --argstr system ${system} \
-            -f ${./packages-info.nix} topLevelPkgs.woMainProgram \
-              | jq -c .[] \
-              | parallel --eta --no-notice "add-main-program-for-package {}";
+          echo "Add the following in:"
+          echo "$1"/pkgs/development/node-packages/default.nix
+          echo ""
+          run-script "$(which mainprog-info-node)" node.wo-mainprog "$1"
         '';
       };
 
-      packages.get-node-main-programs = writeShellApplication {
-        name = "get-node-main-programs";
+      packages.print-missing-mainprogs-perl = writeShellApplication {
+        name = "print-missing-mainprogs-perl";
         runtimeInputs = attrValues {
-          inherit (pkgs) jq nix parallel;
-          inherit print-main-program-for-node-package;
+          inherit (pkgs) which;
+          inherit mainprog-info-perl run-script;
         };
         text = ''
-          nix eval --json \
-            --argstr nixpkgs "$1" \
-            --argstr system ${system} \
-            -f ${./packages-info.nix} nodePackages.woMainProgram \
-              | jq -c .[] \
-              | parallel --no-notice "print-main-program-for-node-package {}";
+          echo "Add the following in:"
+          echo "$1"/pkgs/top-level/perl-packages.nix
+          echo ""
+          run-script "$(which mainprog-info-perl)" perl.wo-mainprog "$1"
         '';
       };
     }

@@ -12,9 +12,13 @@ let
     (tryEval p.name).success &&
     (tryEval p.outPath).success &&
     (p ? meta.position);
-  hasMainProgram = p: p ? meta.mainProgram;
+  hasMainProg = p: p ? meta.mainProgram;
 
   # Utility functions
+  getPkgs = attrSet: filter isValidPkg (attrValues attrSet);
+  getPkgsWithMainProg = attrSet: filter hasMainProg (getPkgs attrSet);
+  getPkgsWoMainProg = attrSet: filter (x: !(hasMainProg x)) (getPkgs attrSet);
+
   getPkgInfo = p: rec {
     inherit (parseDrvName p.name) name;
     pname = p.pname or name;
@@ -22,18 +26,14 @@ let
     storePath = p.outPath;
     mainProgram = p.meta.mainProgram or "";
   };
-  getPkgs = attrSet: filter isValidPkg (attrValues attrSet);
-  getPkgsWithMainProgram = attrSet: filter hasMainProgram (getPkgs attrSet);
-  getPkgsWoMainProgram = attrSet: filter (x: !(hasMainProgram x)) (getPkgs attrSet);
-in
-{
-  topLevelPkgs = {
-    withMainProgram = map getPkgInfo (getPkgsWithMainProgram pkgs);
-    woMainProgram = map getPkgInfo (getPkgsWoMainProgram pkgs);
-  };
 
-  nodePackages = {
-    withMainProgram = map getPkgInfo (getPkgsWithMainProgram pkgs.nodePackages);
-    woMainProgram = map getPkgInfo (getPkgsWoMainProgram pkgs.nodePackages);
+  mkPkgInfoAttrSet = name: attrSet: {
+    ${name} = {
+      w-mainprog = map getPkgInfo (getPkgsWithMainProg attrSet);
+      wo-mainprog = map getPkgInfo (getPkgsWoMainProg attrSet);
+    };
   };
-}
+in
+mkPkgInfoAttrSet "top-Level" pkgs //
+mkPkgInfoAttrSet "node" pkgs.nodePackages //
+mkPkgInfoAttrSet "perl" pkgs.perlPackages
