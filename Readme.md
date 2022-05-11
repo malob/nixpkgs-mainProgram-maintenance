@@ -4,17 +4,20 @@ This WIP project houses the hacky scripts that I use to help with the maintenanc
 
 ## Scripts
 
-Currently the project provides three main scripts:
+Currently the project provides the following main scripts:
 
 * `add-missing-mainprogs`
+* `add-missing-mainprogs-ocaml`
+* `add-missing-mainprogs-python`
+* `add-missing-mainprogs-top-level`
 * `print-missing-mainprogs-node`
 * `print-missing-mainprogs-perl`
 
-All three take one argument, a path to `nixpkgs` on the local system.
+All take one argument, a path to `nixpkgs` on the local system.
 
 Each identify packages that don't have `meta.mainProgram` defined, and provide a single executable who's name differs from the package's `name` or `pname`.
 
-The `add-missing-mainprogs` script does this for all top-level packages, then attempts to add `meta.mainProgram` to the file where the package's derivation is defined, and if it fails, prints an error message with the information required to try and add it manually.
+The `add-missing-mainprogs` script does this for all packages in `ocamlPackages`, `python{2,3}Packages`, and top-level packages, then attempts to add `meta.mainProgram` to the file where the package's derivation is defined, and if it fails, prints an error message with the information required to try and add it manually.
 
 Due to the auto-generated nature of packages in `nodePackages`, `meta.mainProgram` needs to be added using overrides making automatic insertion more complicated. Therefore the `print-missing-mainprogs-node` script outputs the info that should be added to `pkgs/development/node-packages/default.nix`.
 

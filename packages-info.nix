@@ -34,6 +34,9 @@ let
     };
   };
 in
-mkPkgInfoAttrSet "top-Level" pkgs //
+mkPkgInfoAttrSet "top-level" pkgs //
 mkPkgInfoAttrSet "node" pkgs.nodePackages //
-mkPkgInfoAttrSet "perl" pkgs.perlPackages
+mkPkgInfoAttrSet "ocaml" pkgs.ocamlPackages //
+mkPkgInfoAttrSet "perl" pkgs.perlPackages //
+mkPkgInfoAttrSet "python2" pkgs.python2Packages //
+mkPkgInfoAttrSet "python3" pkgs.python3Packages
