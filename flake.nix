@@ -15,19 +15,39 @@
 
       # Helper scripts -----------------------------------------------------------------------------
 
-      get-bins-in-store-path = writeShellApplication {
-        name = "get-bins-in-store-path";
-        runtimeInputs = attrValues { inherit (pkgs) gnused nix ripgrep; };
+      get-bins-in-local-store = writeShellApplication {
+        name = "get-bins-in-local-store";
+        runtimeInputs = [ pkgs.nix ];
         text = ''
           store_path="$1"
-          bins=$(nix store ls --store https://cache.nixos.org  "$store_path"/bin/ 2> /dev/null  \
-            | sed -E 's/\.\/(.*)/\1/')
-          # Workaround for https://github.com/NixOS/nix/issues/6498
-          if [ "$bins" = "bin" ]; then
-            nix build --no-link "$store_path" 2> /dev/null
-            bins=$(nix store ls "$store_path"/bin/ 2> /dev/null | sed -E 's/\.\/(.*)/\1/')
+          attr_name="$2"
+          nixpkgs="$3"
+          nix build -f "$nixpkgs" --argstr system ${system} --no-link "$attr_name" 2> /dev/null
+          nix store ls "$store_path"/bin/ 2> /dev/null || echo -n ""
+        '';
+      };
+
+      get-bins-in-store = writeShellApplication {
+        name = "get-bins-in-store";
+        runtimeInputs = [ get-bins-in-local-store ] ++ attrValues {
+          inherit (pkgs) gnused nix ripgrep;
+        };
+        text = ''
+          store_path="$1"
+          attr_name="$2"
+          nixpkgs="$3"
+
+          if nix store ls --store https://cache.nixos.org "$store_path" > /dev/null 2>&1; then
+            bins=$(nix store ls --store https://cache.nixos.org "$store_path"/bin/ 2> /dev/null \
+              || echo -n "")
+            # Workaround for https://github.com/NixOS/nix/issues/6498
+            if [ "$bins" = "bin" ]; then
+              bins=$(get-bins-in-local-store "$store_path" "$attr_name" "$nixpkgs")
+            fi
+          else
+            bins=$(get-bins-in-local-store "$store_path" "$attr_name" "$nixpkgs")
           fi
-          echo -n "$bins" | rg --invert-match '.*-wrapped'
+          echo -n "$bins" | sed -E 's#\./##' | rg --invert-match '.*-wrapped'
         '';
       };
 
@@ -53,18 +73,20 @@
         '';
       };
 
-      get-bin-for-pkgs = writeShellApplication {
-        name = "get-bin-for-pkgs";
+      get-bin-for-pkg = writeShellApplication {
+        name = "get-bin-for-pkg";
         runtimeInputs = [
-          get-bins-in-store-path
+          get-bins-in-store
           write-mainprog-line
         ] ++ attrValues { inherit (pkgs) coreutils jq ripgrep; };
         text = ''
+          attr_name=$(echo "$1" | jq -r '.attrName')
           name=$(echo "$1" | jq -r '.name')
           pname=$(echo "$1" | jq -r '.pname')
           store_path=$(echo "$1" | jq -r '.storePath')
+          nixpkgs="$2"
 
-          bins=$(get-bins-in-store-path "$store_path")
+          bins=$(get-bins-in-store "$store_path" "$attr_name" "$nixpkgs")
 
           # If package doesn't have a single bin, or the single bin matches `name` or `pname`, skip
           if [ "$(echo "$bins" | wc -l)" != "1" ] \
@@ -78,16 +100,20 @@
       add-mainprog = writeShellApplication {
         name = "add-mainprog";
         runtimeInputs = [
-          get-bin-for-pkgs
+          get-bin-for-pkg
           write-mainprog-line
         ] ++ attrValues { inherit (pkgs) gnused jq; };
         text = ''
           name=$(echo "$1" | jq -r '.name')
           file=$(echo "$1" | jq -r '.position' | sed -E 's/(.+):[0-9]+/\1/')
-          bin=$(get-bin-for-pkgs "$1")
+          nixpkgs="$2"
 
           # If package is auto-generated, skip
-          if echo "$file" | rg '(haskell-modules|node-packages)' > /dev/null; then exit 0; fi
+          if echo "$file" | rg '(haskell-modules|node-packages|perl-packages)' > /dev/null; then
+            exit 0
+          fi
+
+          bin=$(get-bin-for-pkg "$1" "$nixpkgs")
 
           if ! write-mainprog-line "$bin" "$file"; then
             echo ""
@@ -100,20 +126,22 @@
 
       mainprog-info-node = writeShellApplication {
         name = "mainprog-info-node";
-        runtimeInputs = [ get-bin-for-pkgs ] ++ attrValues { inherit (pkgs) gnused jq; };
+        runtimeInputs = [ get-bin-for-pkg pkgs.jq ];
         text = ''
           name=$(echo "$1" | jq -r '.name' | sed -E 's#_at_(.+)_slash_(.+)#"@\1/\2"#')
-          bin=$(get-bin-for-pkgs "$1")
-          echo "$name" = \""$bin"\"
+          nixpkgs="$2"
+          bin=$(get-bin-for-pkg "$1" "$nixpkgs")
+          echo "  $name = \"$bin\";"
         '';
       };
 
       mainprog-info-perl = writeShellApplication {
         name = "mainprog-info-perl";
-        runtimeInputs = [ get-bin-for-pkgs ] ++ attrValues { inherit (pkgs) gnused jq; };
+        runtimeInputs = [ get-bin-for-pkg ] ++ attrValues { inherit (pkgs) gnused jq; };
         text = ''
           pname=$(echo "$1" | jq -r '.pname' | sed -E 's/perl[0-9]+.[0-9]+.[0-9]+-//')
-          bin=$(get-bin-for-pkgs "$1")
+          nixpkgs="$2"
+          bin=$(get-bin-for-pkg "$1" "$nixpkgs")
           echo For "$pname" add:
           echo "      mainProgram = \"$bin\";"
         '';
@@ -129,9 +157,10 @@
           nix eval --json \
             --argstr nixpkgs "$nixpkgs" \
             --argstr system ${system} \
+            --show-trace \
             -f ${./packages-info.nix} "$pkgs_info" \
               | jq -c .[] \
-              | parallel --no-notice "$script {}";
+              | parallel --no-notice "$script {} $nixpkgs";
         '';
       };
 
@@ -141,22 +170,22 @@
       add-missing-mainprogs-ocaml = writeShellApplication {
         name = "add-missing-mainprogs-ocaml";
         runtimeInputs = [ add-mainprog run-script pkgs.which ];
-        text = ''run-script "$(which add-mainprog)" ocaml.wo-mainprog "$1"'';
+        text = ''run-script "$(which add-mainprog)" ocamlPackages.wo-mainprog "$1"'';
       };
 
       add-missing-mainprogs-python = writeShellApplication {
         name = "add-missing-mainprogs-python";
         runtimeInputs = [ add-mainprog run-script pkgs.which ];
         text = ''
-          run-script "$(which add-mainprog)" python2.wo-mainprog "$1" || :
-          run-script "$(which add-mainprog)" python3.wo-mainprog "$1" || :
+          run-script "$(which add-mainprog)" python2Packages.wo-mainprog "$1" || :
+          run-script "$(which add-mainprog)" python3Packages.wo-mainprog "$1" || :
         '';
       };
 
       add-missing-mainprogs-top-level = writeShellApplication {
         name = "add-missing-mainprogs-top-level";
         runtimeInputs = [ add-mainprog run-script pkgs.which ];
-        text = ''run-script "$(which add-mainprog)" top-level.wo-mainprog "$1"'';
+        text = ''run-script "$(which add-mainprog)" pkgs.wo-mainprog "$1"'';
       };
 
       add-missing-mainprogs = writeShellApplication {
@@ -186,9 +215,9 @@
         runtimeInputs = [ mainprog-info-node run-script pkgs.which ];
         text = ''
           echo "Add the following in:"
-          echo "$1"/pkgs/development/node-packages/default.nix
+          echo "$1"/pkgs/development/node-packages/main-programs.nix
           echo ""
-          run-script "$(which mainprog-info-node)" node.wo-mainprog "$1"
+          run-script "$(which mainprog-info-node)" nodePackages.wo-mainprog "$1"
         '';
       };
 
@@ -199,7 +228,7 @@
           echo "Add the following in:"
           echo "$1"/pkgs/top-level/perl-packages.nix
           echo ""
-          run-script "$(which mainprog-info-perl)" perl.wo-mainprog "$1"
+          run-script "$(which mainprog-info-perl)" perlPackages.wo-mainprog "$1"
         '';
       };
     in
