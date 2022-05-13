@@ -1,23 +1,27 @@
-{ nixpkgs, system }:
+{ nixpkgs, system, pkgSetName }:
 
 let
-  pkgs = import nixpkgs { inherit system; };
-  inherit (builtins) attrValues filter parseDrvName tryEval unsafeGetAttrPos;
+  pkgs = import nixpkgs { inherit system; config = { allowUnfree = true;}; };
+  inherit (builtins) attrValues elem filter parseDrvName tryEval unsafeGetAttrPos;
   inherit (pkgs.lib) filterAttrs mapAttrsToList isDerivation;
 
-  # Predicates
-  isValidPkg = p:
-    (tryEval p).success &&
-    (isDerivation p) &&
-    (tryEval p.name).success &&
-    (tryEval p.outPath).success &&
-    (p ? meta.position);
-  hasMainProg = p: p ? meta.mainProgram;
+  pkgs-to-skip = [
+    "ocamlPackages.parmap" # requires building and it takes wayyyyy to long
 
-  # Utility functions
-  getPkgs = filterAttrs (_: isValidPkg);
-  getPkgsWithMainProg = attrSet: filterAttrs (_: hasMainProg) (getPkgs attrSet);
-  getPkgsWoMainProg = attrSet: filterAttrs (_: x: !(hasMainProg x)) (getPkgs attrSet);
+    # Single bins really aren't a sensible mainProgram
+    "perlPackages.AlienSDL"
+    "perlPackages.DevelCheckOS"
+    "perlPackages.DevelChecklib"
+    "perlPackages.libapreq2"
+  ];
+
+  isValidPkg = n: p:
+    (!(elem "${pkgSetName}.${n}" pkgs-to-skip))
+    && (tryEval p).success
+    && (isDerivation p)
+    && (tryEval p.name).success
+    && (tryEval p.outPath).success
+    && (p ? meta.position);
 
   # getMainprogInsertionPoint = p:
   #   if p.meta.maintainers or null != null
@@ -30,8 +34,8 @@ let
   #   then builtins.unsafeGetAttrPos "description" p.meta
   #   else null;
 
-  getPkgInfo = pkgSet: n: p: rec {
-    attrName = "${pkgSet}.${n}";
+  getPkgsInfo = n: p: rec {
+    attrName = "${pkgSetName}.${n}";
     inherit (parseDrvName p.name) name;
     pname = p.pname or name;
     inherit (p.meta) position;
@@ -39,16 +43,10 @@ let
     mainProgram = p.meta.mainProgram or "";
   };
 
-  mkPkgInfoAttrSet = pkgSet: {
-    ${pkgSet} = {
-      w-mainprog = mapAttrsToList (getPkgInfo pkgSet) (getPkgsWithMainProg pkgs.${pkgSet});
-      wo-mainprog = mapAttrsToList (getPkgInfo pkgSet) (getPkgsWoMainProg pkgs.${pkgSet});
-    };
-  };
+  all-pkgs-info = mapAttrsToList getPkgsInfo (filterAttrs isValidPkg pkgs.${pkgSetName});
 in
-mkPkgInfoAttrSet "pkgs" //
-mkPkgInfoAttrSet "nodePackages" //
-mkPkgInfoAttrSet "ocamlPackages" //
-mkPkgInfoAttrSet "perlPackages"  //
-mkPkgInfoAttrSet "python2Packages" //
-mkPkgInfoAttrSet "python3Packages"
+{
+  all = all-pkgs-info;
+  w-mainprog = filter (x: x.mainProgram != "") all-pkgs-info;
+  wo-mainprog = filter (x: x.mainProgram == "") all-pkgs-info;
+}
