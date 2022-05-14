@@ -71,6 +71,7 @@
               | rg '(F|f)ailed' > /dev/null && exit 1
             bins=$(get-bins-in-local-store "$store_path" "$attr_name" "$nixpkgs")
           fi
+          if [ -z "$bins" ]; then exit 1; fi
           echo "$bins" | sed -E 's#\./##'
         '';
       };
@@ -198,6 +199,9 @@
         '';
       };
 
+
+      # Other helper scripts -----------------------------------------------------------------------
+
       remove-invalid-mainprog = writeShellApplication {
         name = "remove-invalid-mainprog";
         runtimeInputs = [
@@ -234,9 +238,6 @@
           fi
         '';
       };
-
-
-      # Other helper scripts -----------------------------------------------------------------------
 
       run-script = writeShellApplication {
         name = "run-script";

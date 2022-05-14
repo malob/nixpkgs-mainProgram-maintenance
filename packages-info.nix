@@ -6,8 +6,6 @@ let
   inherit (pkgs.lib) filterAttrs mapAttrsToList isDerivation;
 
   pkgs-to-skip = [
-    "ocamlPackages.parmap" # requires building and it takes wayyyyy to long
-
     # Single bins really aren't a sensible mainProgram
     "perlPackages.AlienSDL"
     "perlPackages.DevelCheckOS"
