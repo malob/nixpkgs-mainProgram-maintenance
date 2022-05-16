@@ -58,8 +58,9 @@ The `remove-invalid-mainprogs` script finds all packages in the given package se
 * if it could query the store path for the package; and
   * one of the following conditions is met:
     * the `bin/` directory doesn't exist;
-    * the `bin/` directory is empty; or
-    * none of the executables in `bin/` match the package's `name` or `pname`;
+    * the `bin/` directory is empty;
+    * one of the executables in `bin/` match the package's `name` or `pname`; or
+    * none of the executables in `bin/` match the defined `mainProgram`;
   * the `meta.mainProgram` line for the package is removed form the appropriate file.
 
 Known issues:
