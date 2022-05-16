@@ -1,23 +1,69 @@
 # Overview
 
-This WIP project houses the hacky scripts that I use to help with the maintenance of [`meta.mainProgram`](https://nixos.org/manual/nixpkgs/stable/#var-meta-mainProgram) attributes for packages in `nixpkgs`, with the goal of increasing the number of packages that function with `nix run`.
+This WIP project houses the hacky (but increasingly less so) scripts that I use to help with the maintenance of [`meta.mainProgram`](https://nixos.org/manual/nixpkgs/stable/#var-meta-mainProgram) attributes for packages in `nixpkgs`, with the goal of increasing the number of packages that function with `nix run`.
 
-## Scripts
-
-Currently the project provides 3 main scripts:
+Currently the project provides 2 primary scripts:
 
 * `add-missing-mainprogs`
-* `print-missing-mainprogs-node`
-* `print-missing-mainprogs-perl`
+* `remove-invalid-mainprogs`
 
-All take a path to `nixpkgs` on the local system as their first argument, and each identify packages that don't have `meta.mainProgram` defined that provide a single executable who's name differs from the package's `name` or `pname`.
+Both of which take two arguments, a path to `nixpkgs` on the local system, and an attribute path to a package set in `nixpkg`, e.g., `'[ "perlPackages" ]'`.
 
-The `add-missing-mainprogs` script takes the name of a package set in `nixpkgs` (e.g., `pkgs` for all top-level packages, or `python39Packages`, etc.) or `all` as the second argument, and attempts to add `meta.mainProgram` for all packages of the given package set. If it fails, it prints a message with the information required to try and add it manually in the appropriate file. If `all` is given as the second argument it will attempt to do this for packages in `ocamlPackages`, `python39Packages`, and all top-level packages.
+## `add-missing-mainprogs`
 
-Due to the auto-generated nature of packages in `nodePackages`, `meta.mainProgram` needs to be added using overrides making automatic insertion more complicated. Therefore the `print-missing-mainprogs-node` script outputs the lines that should be added to `pkgs/development/node-packages/main-programs.nix` (which will be added when PR #171863 is merged in `NixOS/nixpkgs`).
+Usage examples:
 
-The `print-missing-mainprogs-perl` script does the same for packages in `perlPackages` where automatic insertion is more challenging due to all the packages being defined in one large file (`pkgs/top-level/perl-packages.nix`).
+```
+nix run .#add-missing-mainprogs -- ~/Code/nixpkgs '[ "pkgs" ]'
 
-## Future development
+# or since it's the default package
 
-Future work will likely focus on expanding to more non-top-level package collections in `nixpkgs`, improving auto-inserting capability, as well as adding the ability to validate `meta.mainProgram` definitions for packages.
+nix run . -- ~/Code/nixpkgs '[ "pkgs" ]'
+```
+
+The `add-missing-mainprogs` script finds all packages in the given package set that _don't have_ `meta.mainProgram` defined and then:
+
+* Checks whether the official binary cache contains the store path for each package using `nix store ls`; and
+  * if it does, it retrieves the names of all executables located in `bin/`;
+  * otherwise, it uses `hydra check` to see if the package failed to build on Hydra; and
+    * if it didn't, and the store path for the package isn't listed in `failed-builds.txt`, it builds the package locally; and
+      * if it succeeds, it retrieves the names of all executables located in `bin/`;
+      * otherwise, it appends the store path of the package to `failed-builds.txt`.
+* If a single executable was found, and the name of that executable differs from the packages `name` (more specifically the result of `builtins.parseDrvName name`) or `pname`, it attempts to insert a `meta.mainProgram` definition into the appropriate file; and
+  * if is succeeds, it prints a message to that effect;
+  * otherwise, it prints a message with info helpful for trying to insert the `meta.mainProgram` definition manually.
+
+Known issues:
+
+* The meta attribute under which the script attempts to insert the `meta.mainProgam` definition spans multiple lines. In this case the script will insert the `meta.mainProgam` definition on the incorrect line producing a syntax error in the file.
+* The meta attribute under which the script inserts the `meta.mainProgam` definition is in a meta block shared by unrelated packages. For example, it used to be the case that for packages in for `perlPackages`, if the package didn't have meta attributes defined, the script would insert the `meta.mainProgam` definition into `pkgs/development/perl-modules/generic/default.nix`, which applies to all packages in `perlPackages`. This case is now handled, but there are likely others that aren't.
+* If the package definition is auto-generated, the inserted `meta.mainProgram` definition won't be helpful since it will be overwritten the next time the package definitions are generated. Exceptions are `haskellPackages` which the script explicitly skips, and `nodePackages` which has it's own mechanism for adding `meta.mainProgram` definitions which this script knows how to handle.
+* Sometimes the executables available for a package differ between platforms, e.g., `docker-credential-helpers` provides a single executable on Darwin but multiple executables on Linux.
+* Sometimes the name of an executable changes based on the packages definition. The most common example of this is when the executables name includes the specific version of the package. In these cases the `meta.mainProgram` definition should be manually edited to ensure it remains correct, e.g., `mainProgram = "foo_${version}";`.
+* Sometimes a package includes a single executable whose name differs from the packages `name` or `pname`, but it really doesn't make sense at all for that executable the be the thing that would be run if someone tried to `nix run` the package. In these cases, the package should be added to `pkgs-to-skip` in [lib/package-names.nix](./lib/package-names.nix).
+
+As such, always make sure you review the changes made by this script to ensure they are valid.
+
+## `remove-invalid-mainprogs`
+
+Usage example:
+
+```
+nix run .#remove-invalid-mainprogs -- ~/Code/nixpkgs '[ "pkgs" ]'
+```
+
+The `remove-invalid-mainprogs` script finds all packages in the given package set that _have_ `meta.mainProgram` defined and then,
+
+* it attempts to finds all executables provided for each package in the same way as `add-missing-mainprogs`; and
+* if it could query the store path for the package; and
+  * one of the following conditions is met:
+    * the `bin/` directory doesn't exist;
+    * the `bin/` directory is empty; or
+    * none of the executables in `bin/` match the package's `name` or `pname`;
+  * the `meta.mainProgram` line for the package is removed form the appropriate file.
+
+Known issues:
+
+* Sometimes multiple variations of packages exist in `nixpkgs` that are generated by, e.g., overriding a particular package, or calling a function that generates the package derivation with different arguments. In these cases, sometimes one of the packages' `name` or `pname` match an executable found in the `bin/` triggering the removal of the `meta.mainProgram` for that package, which due to it being shared with other packages who's `name` or `pname` don't match for some reason, would cause those packages to stop working with `nix run`.
+
+As such, always make sure you review the changes made by this script to ensure they are valid.
