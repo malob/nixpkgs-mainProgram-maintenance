@@ -16,7 +16,7 @@ let
   else null;
 
   getEditPositionInfo = p:
-    if elem pkgSetAttrPath [ "nodePackaes" "nodePackages_latest" ] then {
+    if elem pkgSetAttrPath [ [ "nodePackages" ] [ "nodePackages_latest" ] ] then {
       file = "${nixpkgs}/pkgs/development/node-packages/main-programs.nix";
       line = 1;
       column = 3;

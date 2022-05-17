@@ -89,11 +89,9 @@
 
       # Output a single bin name, if package only containts one bin, and that the name of that bin
       # differs from the package's `name` or `pname`, which would cause `nix run` to fail.
-      get-bin-for-pkg = writeShellApplication {
-        name = "get-bin-for-pkg";
-        runtimeInputs = [
-          get-bins-in-store
-        ] ++ attrValues { inherit (pkgs) coreutils jq ripgrep; };
+      get-maingrog-candidates = writeShellApplication {
+        name = "get-maingrog-candidates";
+        runtimeInputs = [ get-bins-in-store ] ++ attrValues { inherit (pkgs) jq ripgrep; };
         text = ''
           pkg_info="$1" # output of `get-pkg-info`
           nixpkgs="$2"
@@ -105,16 +103,11 @@
 
           bins=$(get-bins-in-store "$store_path" "$attr_name" "$nixpkgs")
 
+          # Fail if any executables match the packages `name` or `pname`.
+          echo "$bins" | rg '^('"$name"'|'"$pname"')$' > /dev/null && exit 1
+
           # Filter out wrapped bins since we don't care about them.
-          bins=$(echo "$bins" | rg --invert-match '.*-wrapped')
-
-          # Fail if package doesn't have a single bin, or the single bin matches `name` or `pname`.
-          if [ "$(echo "$bins" | wc -l)" != "1" ] \
-            || echo "$bins" | rg '^('"$name"'|'"$pname"')$' > /dev/null; then
-            exit 1
-          fi
-
-          echo "$bins"
+          echo "$bins" | rg --invert-match '.*-wrapped'
         '';
       };
 
@@ -157,9 +150,9 @@
       add-mainprog = writeShellApplication {
         name = "add-mainprog";
         runtimeInputs = [
-          get-bin-for-pkg
+          get-maingrog-candidates
           write-mainprog-line
-        ] ++ attrValues { inherit (pkgs) gnugrep gnused jq; };
+        ] ++ attrValues { inherit (pkgs) coreutils gnugrep gnused jq; };
         text = ''
           pkg_info="$1" # output of `get-pkg-info`
           nixpkgs="$2"
@@ -178,15 +171,18 @@
           file=$(echo "$pkg_info" | jq -r '.position' | sed -E 's/(.+):[0-9]+/\1/')
           echo "$file" | grep 'haskell-modules' > /dev/null && exit 0
 
-          bin=$(get-bin-for-pkg "$pkg_info" "$nixpkgs") || exit 0
+          bins=$(get-maingrog-candidates "$pkg_info" "$nixpkgs") || exit 0
+
+          # Skip if there is more than one executable for package
+          [ "$(echo "$bins" | wc -l)" = "1" ] || exit 0
 
           # Attempt to insert `mainProgram` line into the file where package is defined, and if
           # insertion fails, print a message with info to help guide the user to insert in manually.
-          if write-mainprog-line "$bin" "$pkg_info"; then
-            echo "Added '$bin' as meta.mainProgram for package '$attr_name'"
+          if write-mainprog-line "$bins" "$pkg_info"; then
+            echo "Added '$bins' as meta.mainProgram for package '$attr_name'"
           else
             echo ""
-            echo "Failed to add '$bin' as meta.mainProgram for '$attr_name' in:"
+            echo "Failed to add '$bins' as meta.mainProgram for '$attr_name' in:"
             echo "$file"
             echo ""
           fi
@@ -314,6 +310,32 @@
         '';
       };
 
+      find-candidate-mainprogs = writeShellApplication {
+        name = "find-candidate-mainprogs";
+        runtimeInputs = [
+          get-maingrog-candidates
+          get-pkg-info
+          get-pkg-names
+        ] ++ attrValues { inherit (pkgs) jq; };
+        text = ''
+          nixpkgs="$1"           # path to local nixpkgs
+          pkg_set_attr_path="$2" # e.g., [ "perlPackages" ] or [ "pkgs" ]
+
+          for pkg_name in $(get-pkg-names "$nixpkgs" "$pkg_set_attr_path" false true); do
+            pkg_info=$(get-pkg-info "$nixpkgs" "$pkg_set_attr_path" "$pkg_name")
+            attr_name=$(echo "$pkg_info" | jq -r '.attrName')
+            file=$(echo "$pkg_info" | jq -r '.editPositionInfo.file')
+
+            bins=$(get-maingrog-candidates "$pkg_info" "$nixpkgs") || continue
+
+            echo "Candidate mainPrograms for '$attr_name':"
+            echo "$bins"
+            echo "Add in: $file"
+            echo ""
+          done
+        '';
+      };
+
       remove-invalid-mainprogs = writeShellApplication {
         name = "remove-invalid-mainprogs";
         runtimeInputs = [ get-pkg-info get-pkg-names remove-invalid-mainprog ];
@@ -333,6 +355,7 @@
           get-pkg-names
           get-pkg-info
           add-missing-mainprogs
+          find-candidate-mainprogs
           remove-invalid-mainprogs;
 
         default = add-missing-mainprogs;
