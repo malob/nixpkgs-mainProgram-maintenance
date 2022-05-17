@@ -18,7 +18,7 @@ let
   getEditPositionInfo = p:
     if elem pkgSetAttrPath [ [ "nodePackages" ] [ "nodePackages_latest" ] ] then {
       file = "${nixpkgs}/pkgs/development/node-packages/main-programs.nix";
-      line = 1;
+      line = 3;
       column = 3;
     }
     else if (p ? meta.mainProgram) then
