@@ -7,7 +7,7 @@
 
 let
   pkgs = import nixpkgs { inherit config system; };
-  inherit (builtins) isAttrs parseDrvName unsafeGetAttrPos;
+  inherit (builtins) elem isAttrs parseDrvName unsafeGetAttrPos;
   inherit (pkgs.lib) concatStringsSep getAttrFromPath foldl;
 
   getMetaAttrPosition = p: metaAttrName:
@@ -16,7 +16,7 @@ let
   else null;
 
   getEditPositionInfo = p:
-    if pkgSetAttrPath == [ "nodePackaes" ] then {
+    if elem pkgSetAttrPath [ "nodePackaes" "nodePackages_latest" ] then {
       file = "${nixpkgs}/pkgs/development/node-packages/main-programs.nix";
       line = 1;
       column = 3;

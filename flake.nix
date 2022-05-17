@@ -25,7 +25,7 @@
       # doesn't exist in the local store, try to build the package first.
       get-bins-in-local-store = writeShellApplication {
         name = "get-bins-in-local-store";
-        runtimeInputs = [ nix-store-ls ] ++ attrValues { inherit (pkgs) coreutils nix; };
+        runtimeInputs = [ nix-store-ls ] ++ attrValues { inherit (pkgs) coreutils gnugrep nix; };
         text = ''
           store_path="$1"
           attr_name="$2"
