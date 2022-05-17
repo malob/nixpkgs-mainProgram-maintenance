@@ -150,8 +150,8 @@
 
       # Check whether package is a candidate for adding `meta.mainProgram` and if it is, attempt to
       # insert in into the appropriate file.
-      add-mainprog = writeShellApplication {
-        name = "add-mainprog";
+      add-mainprog-for-pkg = writeShellApplication {
+        name = "add-mainprog-for-pkg";
         runtimeInputs = [
           get-maingrog-candidates
           write-mainprog-line
@@ -302,14 +302,27 @@
 
       add-missing-mainprogs = writeShellApplication {
         name = "add-missing-mainprogs";
-        runtimeInputs = [ add-mainprog get-pkg-info get-pkg-names ];
+        runtimeInputs = [ add-mainprog-for-pkg get-pkg-info get-pkg-names ];
         text = ''
           nixpkgs="$1"           # path to local nixpkgs
           pkg_set_attr_path="$2" # e.g., [ "perlPackages" ] or [ "pkgs" ]
 
           for pkg_name in $(get-pkg-names "$nixpkgs" "$pkg_set_attr_path" false true); do
-            add-mainprog "$(get-pkg-info "$nixpkgs" "$pkg_set_attr_path" "$pkg_name")" "$nixpkgs"
+            add-mainprog-for-pkg \
+              "$(get-pkg-info "$nixpkgs" "$pkg_set_attr_path" "$pkg_name")" "$nixpkgs"
           done
+        '';
+      };
+
+      add-mainprog = writeShellApplication {
+        name = "add-mainprog";
+        runtimeInputs = [ get-pkg-info write-mainprog-line ];
+        text = ''
+          nixpkgs="$1"           # path to local nixpkgs
+          pkg_set_attr_path="$2" # e.g., [ "perlPackages" ] or [ "pkgs" ]
+          pkg_name="$3"          # e.g., ack
+          bin="$4"
+          write-mainprog-line "$bin" "$(get-pkg-info "$nixpkgs" "$pkg_set_attr_path" "$pkg_name")"
         '';
       };
 
@@ -357,6 +370,7 @@
         inherit
           get-pkg-names
           get-pkg-info
+          add-mainprog
           add-missing-mainprogs
           find-candidate-mainprogs
           remove-invalid-mainprogs;
