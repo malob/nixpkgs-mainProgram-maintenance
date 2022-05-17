@@ -65,15 +65,18 @@
           touch failed-builds.txt
           grep "$store_path" failed-builds.txt > /dev/null && exit 1
 
+          # Check if store path is present in the local store, if it is, get contents of `bin/`.
+          if nix-store-ls daemon "$store_path" > /dev/null; then
+            bins=$(nix-store-ls daemon "$store_path/bin/")
           # Check if store path is present in the binary cache, if it is, get contents of `bin/`.
-          if nix-store-ls https://cache.nixos.org "$store_path" > /dev/null; then
+          elif nix-store-ls https://cache.nixos.org "$store_path" > /dev/null; then
             bins=$(nix-store-ls https://cache.nixos.org "$store_path/bin/")
             # Workaround for https://github.com/NixOS/nix/issues/6498
             if [ "$bins" = "bin" ]; then
               bins=$(get-bins-in-local-store "$store_path" "$attr_name" "$nixpkgs")
             fi
-          # Otherwise, build package locally, if it didn't fail on Hydra, and get contents of `bin/`
-          # from local store.
+          # Build package locally, if it didn't fail on Hydra, and get contents of `bin/` from
+          # local store.
           else
             hydra-check --channel master --arch ${system} "$attr_name" \
               | rg '(F|f)ailed' > /dev/null && exit 1
