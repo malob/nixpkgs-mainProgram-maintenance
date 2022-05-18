@@ -4,34 +4,35 @@ This WIP project houses the hacky (but increasingly less so) scripts that I use 
 
 Currently the project provides 2 primary scripts:
 
-* `add-missing-mainprogs`
-* `remove-invalid-mainprogs`
+* `add-mps`
+* `add-mps-interactive`
+* `rm-mps`
 
 Both of which take two arguments, a path to `nixpkgs` on the local system, and an attribute path to a package set in `nixpkg`, e.g., `'[ "perlPackages" ]'`.
 
-## `add-missing-mainprogs`
+## `add-mps`
 
 Usage examples:
 
 ```
-nix run .#add-missing-mainprogs -- ~/Code/nixpkgs '[ "pkgs" ]'
+nix run .#add-mps -- ~/Code/nixpkgs '[ "pkgs" ]'
 
 # or since it's the default package
 
 nix run . -- ~/Code/nixpkgs '[ "pkgs" ]'
 ```
 
-The `add-missing-mainprogs` script finds all packages in the given package set that _don't have_ `meta.mainProgram` defined and then:
+The `add-mps` script finds all packages in the given package set that _don't have_ `meta.mainProgram` defined and then:
 
-* Checks whether the official binary cache contains the store path for each package using `nix store ls`; and
-  * if it does, it retrieves the names of all executables located in `bin/`;
-  * otherwise, it uses `hydra check` to see if the package failed to build on Hydra; and
-    * if it didn't, and the store path for the package isn't listed in `failed-builds.txt`, it builds the package locally; and
-      * if it succeeds, it retrieves the names of all executables located in `bin/`;
-      * otherwise, it appends the store path of the package to `failed-builds.txt`.
-* If a single executable was found, and the name of that executable differs from the packages `name` (more specifically the result of `builtins.parseDrvName name`) or `pname`, it attempts to insert a `meta.mainProgram` definition into the appropriate file; and
-  * if is succeeds, it prints a message to that effect;
-  * otherwise, it prints a message with info helpful for trying to insert the `meta.mainProgram` definition manually.
+1. Checks whether the official binary cache contains the store path for each package using `nix store ls`; and
+   * if it does, it retrieves the names of all executables located in `bin/`;
+   * otherwise, it uses `hydra check` to see if the package failed to build on Hydra; and
+     * if it didn't, and the store path for the package isn't listed in `failed-builds.txt`, it builds the package locally; and
+       * if it succeeds, it retrieves the names of all executables located in `bin/`;
+       * otherwise, it appends the store path of the package to `failed-builds.txt`.
+2. If a single executable was found, and the name of that executable differs from the packages `name` (more specifically the result of `builtins.parseDrvName name`) or `pname`, it attempts to insert a `meta.mainProgram` definition into the appropriate file; and
+   * if is succeeds, it prints a message to that effect;
+   * otherwise, it prints a message with info helpful for trying to insert the `meta.mainProgram` definition manually.
 
 Known issues:
 
@@ -42,26 +43,35 @@ Known issues:
 * Sometimes the name of an executable changes based on the packages definition. The most common example of this is when the executables name includes the specific version of the package. In these cases the `meta.mainProgram` definition should be manually edited to ensure it remains correct, e.g., `mainProgram = "foo_${version}";`.
 * Sometimes a package includes a single executable whose name differs from the packages `name` or `pname`, but it really doesn't make sense at all for that executable the be the thing that would be run if someone tried to `nix run` the package. In these cases, the package should be added to `pkgs-to-skip` in [lib/package-names.nix](./lib/package-names.nix).
 
-As such, always make sure you review the changes made by this script to ensure they are valid.
+As such, always make sure you review the changes made by this script to ensure they are valid. One way to catch problematic additions of `meta.mainProgram` definitions by this script, is to run `rm-mps` after running `add-mps`.
 
-## `remove-invalid-mainprogs`
+## `add-mps-interactive`
+
+The `add-mps-interactive` does the same thing as `add-mps` up to step up to step 2., at which point it presents a selection prompt (if executables where found, and none of them matched the pacakge's `name` or `pname`), that list all executables found as well as "Skip" and "Exclude". If the user selects,
+
+* one of the listed binaries, it then attempts to insert the `meta.mainProgram` definition into the appropriate file;
+* "Skip", it does nothing an moves onto the next package;
+* "Exclude", it adds an entry to [lib/package-to-skip.nix](./lib/package-to-skip.nix) for the package, which will cause that package to be excluded from future runs of the scripts in this project.
+
+
+## `rm-mps`
 
 Usage example:
 
 ```
-nix run .#remove-invalid-mainprogs -- ~/Code/nixpkgs '[ "pkgs" ]'
+nix run .#rm-mps -- ~/Code/nixpkgs '[ "pkgs" ]'
 ```
 
-The `remove-invalid-mainprogs` script finds all packages in the given package set that _have_ `meta.mainProgram` defined and then,
+The `rm-mps` script finds all packages in the given package set that _have_ `meta.mainProgram` defined and then,
 
-* it attempts to finds all executables provided for each package in the same way as `add-missing-mainprogs`; and
-* if it could query the store path for the package; and
-  * one of the following conditions is met:
-    * the `bin/` directory doesn't exist;
-    * the `bin/` directory is empty;
-    * one of the executables in `bin/` match the package's `name` or `pname`; or
-    * none of the executables in `bin/` match the defined `mainProgram`;
-  * the `meta.mainProgram` line for the package is removed form the appropriate file.
+1. it attempts to finds all executables provided for each package in the same way as `add-mps`; and
+2. if it could query the store path for the package; and
+   * one of the following conditions is met:
+     * the `bin/` directory doesn't exist;
+     * the `bin/` directory is empty;
+     * one of the executables in `bin/` match the package's `name` or `pname`; or
+     * none of the executables in `bin/` match the defined `mainProgram`;
+   * the `meta.mainProgram` line for the package is removed form the appropriate file.
 
 Known issues:
 

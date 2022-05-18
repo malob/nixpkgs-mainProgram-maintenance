@@ -12,14 +12,13 @@ let
 
   getMetaAttrPosition = p: metaAttrName:
   if (p ? meta.${metaAttrName})
-  then (builtins.unsafeGetAttrPos metaAttrName p.meta) // { metaAttr = metaAttrName; }
+  then (builtins.unsafeGetAttrPos metaAttrName p.meta) // { meta_attr = metaAttrName; }
   else null;
 
   getEditPositionInfo = p:
     if elem pkgSetAttrPath [ [ "nodePackages" ] [ "nodePackages_latest" ] ] then {
       file = "${nixpkgs}/pkgs/development/node-packages/main-programs.nix";
       line = 3;
-      column = 3;
     }
     else if (p ? meta.mainProgram) then
       getMetaAttrPosition p "mainProgram"
@@ -34,13 +33,14 @@ let
     ];
 
   getPkgInfo = p: rec {
-    attrName = "${concatStringsSep "." pkgSetAttrPath }.${pkgName}";
+    attr_name = "${concatStringsSep "." pkgSetAttrPath }.${pkgName}";
     inherit (parseDrvName p.name) name;
     pname = p.pname or name;
     inherit (p.meta) position;
-    storePath = p.outPath;
-    editPositionInfo = getEditPositionInfo p;
-    mainProgram = p.meta.mainProgram or "";
+    store_path = p.outPath;
+    edit_info = getEditPositionInfo p;
+    main_program = p.meta.mainProgram or null;
+    inherit nixpkgs;
   };
 in
 {
