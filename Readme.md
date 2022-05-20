@@ -2,13 +2,13 @@
 
 This WIP project houses the hacky (but increasingly less so) scripts that I use to help with the maintenance of [`meta.mainProgram`](https://nixos.org/manual/nixpkgs/stable/#var-meta-mainProgram) attributes for packages in `nixpkgs`, with the goal of increasing the number of packages that function with `nix run`.
 
-Currently the project provides 2 primary scripts:
+Currently the project provides 3 primary scripts,
 
 * `add-mps`
 * `add-mps-interactive`
 * `rm-mps`
 
-Both of which take two arguments, a path to `nixpkgs` on the local system, and an attribute path to a package set in `nixpkg`, e.g., `'[ "perlPackages" ]'`.
+all of which take two arguments, a path to `nixpkgs` on the local system, and an attribute path to a package set in `nixpkg`, e.g., `'[ "perlPackages" ]'`.
 
 ## `add-mps`
 
@@ -41,16 +41,16 @@ Known issues:
 * If the package definition is auto-generated, the inserted `meta.mainProgram` definition won't be helpful since it will be overwritten the next time the package definitions are generated. Exceptions are `haskellPackages` which the script explicitly skips, and `nodePackages` which has it's own mechanism for adding `meta.mainProgram` definitions which this script knows how to handle.
 * Sometimes the executables available for a package differ between platforms, e.g., `docker-credential-helpers` provides a single executable on Darwin but multiple executables on Linux.
 * Sometimes the name of an executable changes based on the packages definition. The most common example of this is when the executables name includes the specific version of the package. In these cases the `meta.mainProgram` definition should be manually edited to ensure it remains correct, e.g., `mainProgram = "foo_${version}";`.
-* Sometimes a package includes a single executable whose name differs from the packages `name` or `pname`, but it really doesn't make sense at all for that executable the be the thing that would be run if someone tried to `nix run` the package. In these cases, the package should be added to `pkgs-to-skip` in [lib/package-names.nix](./lib/package-names.nix).
+* Sometimes a package includes a single executable whose name differs from the packages `name` or `pname`, but it really doesn't make sense at all for that executable the be the thing that would be run if someone tried to `nix run` the package. In these cases, the package should be added to [lib/package-to-skip.nix](./lib/package-to-skip.nix).
 
 As such, always make sure you review the changes made by this script to ensure they are valid. One way to catch problematic additions of `meta.mainProgram` definitions by this script, is to run `rm-mps` after running `add-mps`.
 
 ## `add-mps-interactive`
 
-The `add-mps-interactive` does the same thing as `add-mps` up to step up to step 2., at which point it presents a selection prompt (if executables where found, and none of them matched the pacakge's `name` or `pname`), that list all executables found as well as "Skip" and "Exclude". If the user selects,
+The `add-mps-interactive` does the same thing as `add-mps` up to step 2, at which point it presents a selection prompt (if executables where found, and none of them matched the package's `name` or `pname`), that list all executables found as well as "Skip" and "Exclude". If the user selects,
 
-* one of the listed binaries, it then attempts to insert the `meta.mainProgram` definition into the appropriate file;
-* "Skip", it does nothing an moves onto the next package;
+* one of the listed executables, it then attempts to insert the `meta.mainProgram` definition into the appropriate file;
+* "Skip", it does nothing an moves on to the next package;
 * "Exclude", it adds an entry to [lib/package-to-skip.nix](./lib/package-to-skip.nix) for the package, which will cause that package to be excluded from future runs of the scripts in this project.
 
 
@@ -71,7 +71,7 @@ The `rm-mps` script finds all packages in the given package set that _have_ `met
      * the `bin/` directory is empty;
      * one of the executables in `bin/` match the package's `name` or `pname`; or
      * none of the executables in `bin/` match the defined `mainProgram`;
-   * the `meta.mainProgram` line for the package is removed form the appropriate file.
+   * the `meta.mainProgram` line for the package is removed from the appropriate file.
 
 Known issues:
 
